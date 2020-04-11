@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -52,16 +53,32 @@ thread_local uint64_t initial_thread_id;
 std::atomic<uint64_t> Thread::next_id;
 
 Thread::Thread(bool create_stack)
-    : id{0}, state{State::kWaiting}, context{}, stack{nullptr} {
-  // FIXME: Phase 1
-  static_cast<void>(create_stack);
+    : id{0}, state{State::kWaiting}, context{}, stack{nullptr}, stack_bottom{nullptr} {
+  // The first thread id should be 0.
+  // Since Thread::next_id is std::atomic, the ++ operator is atomic.
+  id = Thread::next_id++;
+
+  if (create_stack) {
+    // malloc 2MB for the stack.
+    uintptr_t stack_btm = (uintptr_t) malloc(kStackSize);
+    stack_bottom = (uint8_t *) stack_btm;
+    // get a ptr to the back of the stack since the stack grows down.
+    uintptr_t stackptr = stack_btm + (kStackSize / sizeof(uintptr_t) - 1);
+    // 16 byte align the address.
+    stackptr &= ~(0xF);
+    stack = (uint8_t *) stackptr;
+  }
+
   // These two initial values are provided for you.
   context.mxcsr = 0x1F80;
   context.x87 = 0x037F;
 }
 
 Thread::~Thread() {
-  // FIXME: Phase 1
+  // stack_bottom is only non-null if a stack was allocated.
+  if (stack_bottom) {
+    free(stack_bottom);
+  }
 }
 
 void Thread::PrintDebug() {
