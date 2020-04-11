@@ -60,13 +60,9 @@ Thread::Thread(bool create_stack)
 
   if (create_stack) {
     // malloc 2MB for the stack.
-    uintptr_t stack_btm = (uintptr_t) malloc(kStackSize);
-    stack_bottom = (uint8_t *) stack_btm;
-    // get a ptr to the back of the stack since the stack grows down.
-    uintptr_t stackptr = stack_btm + (kStackSize / sizeof(uintptr_t) - 1);
+    stack_bottom = (uint8_t *) malloc(kStackSize);
     // 16 byte align the address.
-    stackptr &= ~(0xF);
-    stack = (uint8_t *) stackptr;
+    stack = (uint8_t *) (((uint64_t) (stack_bottom + 0x10)) & ~(0x0F));
   }
 
   // These two initial values are provided for you.
@@ -120,11 +116,37 @@ void Initialize() {
 
 void Spawn(Function fn, void* arg) {
   auto new_thread = std::make_unique<Thread>(true);
-  // FIXME: Phase 3
-  // Set up the initial stack, and put it in `thread_queue`. Must yield to it
-  // afterwards. How do we make sure it's executed right away?
-  static_cast<void>(fn);
-  static_cast<void>(arg);
+
+  // Setup the stack
+  // addr is stored on the stack and ret pops it off when context switching.
+  // The function we want to call is start_thread, which expects fn and arg to
+  // be on the stack so the new_thread stack should loook like this:
+  //
+  //   |----------------|
+  //   |       &arg     |
+  //   |----------------|
+  //   |       &fn      |
+  //   |----------------|
+  //   | &start_thread  |
+  //   |----------------| <-- %rsp
+
+  uintptr_t start_thread_ptr = (uintptr_t) &StartThread;
+  std::memcpy((void *) (new_thread->stack + (kStackSize - 0x18)), &start_thread_ptr, sizeof(start_thread_ptr));
+  std::memcpy((void *) (new_thread->stack + (kStackSize - 0x10)), &arg, sizeof(arg));
+  std::memcpy((void *) (new_thread->stack + (kStackSize - 0x8)), &fn, sizeof(fn));
+
+  // Set the %rsp register now that we have changed the stack.
+  (new_thread->context).rsp = (uint64_t) (new_thread->stack + (kStackSize - 0x18));
+
+  // Mark the thread as ready
+  new_thread->state = Thread::State::kReady;
+
+  // Insert the thread into the front of the queue and yield to it
+  // to make sure it runs immediately.
+  queue_lock.lock();
+  thread_queue.insert(thread_queue.begin(), std::move(new_thread));
+  queue_lock.unlock();
+  Yield(true);
 }
 
 bool Yield(bool only_ready) {
@@ -133,7 +155,44 @@ bool Yield(bool only_ready) {
   // in `kReady` state. Otherwise, also consider `kWaiting` threads. Be careful,
   // never schedule initial thread onto other kernel threads (for extra credit
   // phase)!
-  static_cast<void>(only_ready);
+  int new_thread_id = -1;
+
+  queue_lock.lock();
+
+  // Find a candidate thread
+  for(unsigned int i = 0; i < thread_queue.size(); i++) {
+    Thread::State i_state = thread_queue[i]->state;
+    if (only_ready && i_state == Thread::State::kReady) {
+      new_thread_id = i;
+      break;
+    } else if (i_state == Thread::State::kReady || i_state == Thread::State::kWaiting) {
+      new_thread_id = i;
+      break;
+    }
+  }
+
+  // If we do not find a new thread...
+  if (new_thread_id == -1) {
+    queue_lock.unlock();
+    return false;
+  }
+
+  // Waiting threads shouldn't be erroneously moved to ready since Wait()
+  // calls Yield
+  if (current_thread->state == Thread::State::kRunning) {
+    current_thread->state = Thread::State::kReady;
+  }
+  thread_queue.push_back(std::move(current_thread));
+
+  current_thread = std::move(thread_queue[new_thread_id]);
+  current_thread->state = Thread::State::kRunning;
+  thread_queue.erase(thread_queue.begin() + new_thread_id);
+
+  Context* old_ctx = &(thread_queue[thread_queue.size() - 1]->context);
+  Context* new_ctx = &(current_thread->context);
+  ContextSwitch(old_ctx, new_ctx);
+
+  queue_lock.unlock();
   return true;
 }
 
