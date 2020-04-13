@@ -1,0 +1,79 @@
+Extra Credit:
+
+Vikram Shanker (vshanker)
+Swathi Iyer (swathii)
+
+Part 1: Making sure there are no data races in the library.
+
+The version of the library that supports only a single kernel thread inherently
+doesn't have race conditions since no thread can be preempted. However, when
+there are multiple kernel threads, the userspace threads become preemptible. Our
+original implementation of the library with only a single kernel thread did not
+have race conditions since we locked the thread_queue even though it was not
+stricly necessary. However, to confirm my suspicions, I removed the locking and
+observed segmentation faults due to race conditions between GarbageCollection
+and context switching.
+
+Part 2: Double Checked Locking Pattern + ThreadSanitizer
+
+In test/dclp.cpp, we implemented the double checked locking pattern as shown
+in the Eraser paper. We used the given extra credit example as a template,
+with only 5 threads and a MockFile instead of the C++ FILE API.
+
+WARNING: ThreadSanitizer: data race (pid=7869)
+  Write of size 8 at 0x0000006113a0 by thread T2 (mutexes: write M11):
+    #0 GreenThreadWorker(void*) test/dclp.cpp:33 (dclp+0x000000402588)
+    #1 thread_entry src/chloros.cpp:260 (dclp+0x000000406aa6)
+    #2 void std::_Bind_simple<void (*(int))(int)>::_M_invoke<0ul>(std::_Index_tuple<0ul>) /usr/include/c++/5/functional:1531 (dclp+0x000000405ef4)
+    #3 std::_Bind_simple<void (*(int))(int)>::operator()() /usr/include/c++/5/functional:1520 (dclp+0x000000405d1c)
+    #4 std::thread::_Impl<std::_Bind_simple<void (*(int))(int)> >::_M_run() /usr/include/c++/5/thread:115 (dclp+0x000000405c54)
+    #5 <null> <null> (libstdc++.so.6+0x0000000b8c7f)
+
+  Previous read of size 8 at 0x0000006113a0 by thread T3:
+    #0 GreenThreadWorker(void*) test/dclp.cpp:30 (dclp+0x000000402511)
+    #1 thread_entry src/chloros.cpp:260 (dclp+0x000000406aa6)
+    #2 void std::_Bind_simple<void (*(int))(int)>::_M_invoke<0ul>(std::_Index_tuple<0ul>) /usr/include/c++/5/functional:1531 (dclp+0x000000405ef4)
+    #3 std::_Bind_simple<void (*(int))(int)>::operator()() /usr/include/c++/5/functional:1520 (dclp+0x000000405d1c)
+    #4 std::thread::_Impl<std::_Bind_simple<void (*(int))(int)> >::_M_run() /usr/include/c++/5/thread:115 (dclp+0x000000405c54)
+    #5 <null> <null> (libstdc++.so.6+0x0000000b8c7f)
+
+  Location is global 'mock_file' of size 8 at 0x0000006113a0 (dclp+0x0000006113a0)
+
+  Mutex M11 (0x0000006113c0) created at:
+    #0 pthread_mutex_lock <null> (libtsan.so.0+0x000000037286)
+    #1 __gthread_mutex_lock /usr/include/x86_64-linux-gnu/c++/5/bits/gthr-default.h:748 (dclp+0x00000040236e)
+    #2 std::mutex::lock() /usr/include/c++/5/mutex:135 (dclp+0x000000402b5a)
+    #3 GreenThreadWorker(void*) test/dclp.cpp:31 (dclp+0x00000040252b)
+    #4 thread_entry src/chloros.cpp:260 (dclp+0x000000406aa6)
+    #5 void std::_Bind_simple<void (*(int))(int)>::_M_invoke<0ul>(std::_Index_tuple<0ul>) /usr/include/c++/5/functional:1531 (dclp+0x000000405ef4)
+    #6 std::_Bind_simple<void (*(int))(int)>::operator()() /usr/include/c++/5/functional:1520 (dclp+0x000000405d1c)
+    #7 std::thread::_Impl<std::_Bind_simple<void (*(int))(int)> >::_M_run() /usr/include/c++/5/thread:115 (dclp+0x000000405c54)
+    #8 <null> <null> (libstdc++.so.6+0x0000000b8c7f)
+
+  Thread T2 (tid=7872, running) created by main thread at:
+    #0 pthread_create <null> (libtsan.so.0+0x000000027577)
+    #1 std::thread::_M_start_thread(std::shared_ptr<std::thread::_Impl_base>, void (*)()) <null> (libstdc++.so.6+0x0000000b8dc2)
+    #2 void __gnu_cxx::new_allocator<std::thread>::construct<std::thread, void (&)(int), int&>(std::thread*, void (&)(int), int&) /usr/include/c++/5/ext/new_allocator.h:120 (dclp+0x0000004036e9)
+    #3 void std::allocator_traits<std::allocator<std::thread> >::construct<std::thread, void (&)(int), int&>(std::allocator<std::thread>&, std::thread*, void (&)(int), int&) /usr/include/c++/5/bits/alloc_traits.h:530 (dclp+0x0000004031f0)
+    #4 void std::vector<std::thread, std::allocator<std::thread> >::_M_emplace_back_aux<void (&)(int), int&>(void (&)(int), int&) /usr/include/c++/5/bits/vector.tcc:416 (dclp+0x0000004032b9)
+    #5 void std::vector<std::thread, std::allocator<std::thread> >::emplace_back<void (&)(int), int&>(void (&)(int), int&) /usr/include/c++/5/bits/vector.tcc:101 (dclp+0x000000402f23)
+    #6 main test/dclp.cpp:49 (dclp+0x0000004026f2)
+
+  Thread T3 (tid=7873, running) created by main thread at:
+    #0 pthread_create <null> (libtsan.so.0+0x000000027577)
+    #1 std::thread::_M_start_thread(std::shared_ptr<std::thread::_Impl_base>, void (*)()) <null> (libstdc++.so.6+0x0000000b8dc2)
+    #2 void __gnu_cxx::new_allocator<std::thread>::construct<std::thread, void (&)(int), int&>(std::thread*, void (&)(int), int&) /usr/include/c++/5/ext/new_allocator.h:120 (dclp+0x0000004036e9)
+    #3 void std::allocator_traits<std::allocator<std::thread> >::construct<std::thread, void (&)(int), int&>(std::allocator<std::thread>&, std::thread*, void (&)(int), int&) /usr/include/c++/5/bits/alloc_traits.h:530 (dclp+0x0000004031f0)
+    #4 void std::vector<std::thread, std::allocator<std::thread> >::_M_emplace_back_aux<void (&)(int), int&>(void (&)(int), int&) /usr/include/c++/5/bits/vector.tcc:416 (dclp+0x0000004032b9)
+    #5 void std::vector<std::thread, std::allocator<std::thread> >::emplace_back<void (&)(int), int&>(void (&)(int), int&) /usr/include/c++/5/bits/vector.tcc:101 (dclp+0x000000402f23)
+    #6 main test/dclp.cpp:49 (dclp+0x0000004026f2)
+
+SUMMARY: ThreadSanitizer: data race test/dclp.cpp:33 GreenThreadWorker(void*)
+
+As you can see, ThreadSanitized catches the datarace on line 30/33 which is a
+consequence of not locking the file_lock before checking if mock_file is nullptr.
+It detects that T2 wrote to to mock_file holding Mutex11. However, T1 reads
+it without holding the lock. This works the way the lockset algorithm in
+Eraser works.
+
+
