@@ -9,7 +9,7 @@ TEST_DIR := test
 LIB := $(LIB_DIR)/libchloros.a
 
 CXXFLAGS += -g -Wall -Wextra -std=c++14 -I$(HDR_DIR) -DDEBUG
-TEST_CXXFLAGS := $(CXXFLAGS) -L$(LIB_DIR) -lchloros -pthread
+TEST_CXXFLAGS := $(CXXFLAGS) -L$(LIB_DIR) -lchloros -pthread -fsanitize=thread
 ARFLAGS := -rs
 
 CHLOROS_HDRS := $(wildcard $(HDR_DIR)/*.h)
