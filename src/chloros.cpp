@@ -62,7 +62,9 @@ Thread::Thread(bool create_stack)
     // malloc 2MB for the stack.
     stack_bottom = (uint8_t *) malloc(kStackSize);
     // 16 byte align the address.
-    stack = (uint8_t *) (((uint64_t) (stack_bottom + 0x10)) & ~(0x0F));
+    // Subtract 16 bytes to make sure we stay in the malloc'ed memory after
+    // aligning the address.
+    stack = (uint8_t *) (((uintptr_t) (stack_bottom + kStackSize - 0x10)) & ~0x0F);
   }
 
   // These two initial values are provided for you.
@@ -130,13 +132,15 @@ void Spawn(Function fn, void* arg) {
   //   | &start_thread  |
   //   |----------------| <-- %rsp
 
-  uintptr_t start_thread_ptr = (uintptr_t) &StartThread;
-  std::memcpy((void *) (new_thread->stack + (kStackSize - 0x18)), &start_thread_ptr, sizeof(start_thread_ptr));
-  std::memcpy((void *) (new_thread->stack + (kStackSize - 0x10)), &arg, sizeof(arg));
-  std::memcpy((void *) (new_thread->stack + (kStackSize - 0x8)), &fn, sizeof(fn));
+  std::memcpy((void *) (new_thread->stack), &arg, sizeof(arg));
+  new_thread->stack -= 0x8;
+  std::memcpy((void *) (new_thread->stack), &fn, sizeof(fn));
+  new_thread->stack -= 0x8;
+  uint64_t start_thread_ptr = (uint64_t) &StartThread;
+  std::memcpy((void *) (new_thread->stack), &start_thread_ptr, sizeof(start_thread_ptr));
 
   // Set the %rsp register now that we have changed the stack.
-  (new_thread->context).rsp = (uint64_t) (new_thread->stack + (kStackSize - 0x18));
+  (new_thread->context).rsp = (uint64_t) (new_thread->stack);
 
   // Mark the thread as ready
   new_thread->state = Thread::State::kReady;
@@ -150,12 +154,8 @@ void Spawn(Function fn, void* arg) {
 }
 
 bool Yield(bool only_ready) {
-  // FIXME: Phase 3
-  // Find a thread to yield to. If `only_ready` is true, only consider threads
-  // in `kReady` state. Otherwise, also consider `kWaiting` threads. Be careful,
-  // never schedule initial thread onto other kernel threads (for extra credit
-  // phase)!
-  int new_thread_id = -1;
+  unsigned int new_thread_id;
+  bool new_thr_found = false;
 
   queue_lock.lock();
 
@@ -164,15 +164,17 @@ bool Yield(bool only_ready) {
     Thread::State i_state = thread_queue[i]->state;
     if (only_ready && i_state == Thread::State::kReady) {
       new_thread_id = i;
+      new_thr_found = true;
       break;
-    } else if (i_state == Thread::State::kReady || i_state == Thread::State::kWaiting) {
+    } else if (!only_ready && (i_state == Thread::State::kReady || i_state == Thread::State::kWaiting)) {
       new_thread_id = i;
+      new_thr_found = true;
       break;
     }
   }
 
   // If we do not find a new thread...
-  if (new_thread_id == -1) {
+  if (!new_thr_found) {
     queue_lock.unlock();
     return false;
   }
@@ -185,12 +187,13 @@ bool Yield(bool only_ready) {
   thread_queue.push_back(std::move(current_thread));
 
   current_thread = std::move(thread_queue[new_thread_id]);
-  current_thread->state = Thread::State::kRunning;
   thread_queue.erase(thread_queue.begin() + new_thread_id);
 
   Context* old_ctx = &(thread_queue[thread_queue.size() - 1]->context);
   Context* new_ctx = &(current_thread->context);
   ContextSwitch(old_ctx, new_ctx);
+
+  current_thread->state = Thread::State::kRunning;
 
   queue_lock.unlock();
   return true;
@@ -223,6 +226,7 @@ std::pair<int, int> GetThreadCount() {
 }
 
 void ThreadEntry(Function fn, void* arg) {
+  queue_lock.unlock();
   fn(arg);
   current_thread->state = Thread::State::kZombie;
   LOG_DEBUG("Thread %" PRId64 " exiting.", current_thread->id);
