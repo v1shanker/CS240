@@ -14,7 +14,7 @@ ARFLAGS := -rs
 
 CHLOROS_HDRS := $(wildcard $(HDR_DIR)/*.h)
 CHLOROS_SRCS := chloros.cpp context_switch.S common.cpp
-TEST_BINS := phase_1 phase_2 phase_3 phase_4 phase_extra_credit extra_credit_data_race
+TEST_BINS := phase_1 phase_2 phase_3 phase_4 phase_extra_credit dclp
 CHLOROS_OBJS := $(addprefix $(OBJ_DIR)/,$(addsuffix .o,$(CHLOROS_SRCS)))
 TEST_HDRS := $(wildcard $(TEST_DIR/*.h))
 
