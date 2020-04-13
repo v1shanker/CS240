@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <thread>
 #include <queue>
 #include <vector>
 #include "common.h"
@@ -71,6 +72,9 @@ Thread::Thread(bool create_stack)
   // These two initial values are provided for you.
   context.mxcsr = 0x1F80;
   context.x87 = 0x037F;
+
+  // Set kernel thread_id.
+  kernel_tid = std::this_thread::get_id();
 }
 
 Thread::~Thread() {
@@ -160,9 +164,15 @@ bool Yield(bool only_ready) {
 
   queue_lock.lock();
 
+  std::thread::id curr_kernel_tid = std::this_thread::get_id();
   // Find a candidate thread
   for(unsigned int i = 0; i < thread_queue.size(); i++) {
     Thread::State i_state = thread_queue[i]->state;
+    // If we are not on the initial kernel thread and the thread is the
+    // initial thread, skip the thread.
+    if ((curr_kernel_tid != thread_queue[i]->kernel_tid) && (thread_queue[i]->id == initial_thread_id)) {
+      continue;
+    }
     if (only_ready && i_state == Thread::State::kReady) {
       new_thread_id = i;
       new_thr_found = true;

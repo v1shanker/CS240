@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <thread>
 #include <type_traits>
 #include <utility>
 
@@ -49,6 +50,7 @@ struct Thread {
   Context context;
   uint8_t* stack;
   uint8_t* stack_bottom;
+  std::thread::id kernel_tid;
 
   // Constructor. `create_stack` specifies whether we want to create a stack
   // associated with this thread.
