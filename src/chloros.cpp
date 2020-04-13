@@ -210,6 +210,10 @@ void Wait() {
 
 // This function must be called with the queue_lock held
 void GarbageCollect() {
+  // Use two loops because I don't know how to concurrently modify a vector
+  // while looping over it in C++ :(
+
+  // Find all the zombie thread ids...
   std::set<int> zombie_thr_ids = {};
   for(unsigned int i = 0; i < thread_queue.size(); i++) {
     if (thread_queue[i]->state == Thread::State::kZombie) {
@@ -217,6 +221,7 @@ void GarbageCollect() {
     }
   }
 
+  // ... then delete them.
   for(std::set<int>::iterator it = zombie_thr_ids.begin(); it != zombie_thr_ids.end(); it++) {
     thread_queue.erase(thread_queue.begin() + *it);
   }
