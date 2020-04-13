@@ -196,6 +196,9 @@ bool Yield(bool only_ready) {
 
   current_thread->state = Thread::State::kRunning;
 
+  // Threads are marked as Zombies in ThreadEntry after the function finishes.
+  // ThreadEntry then Yields, therefore, in Yield is the earliest we can
+  // GarbageCollect.
   GarbageCollect();
   queue_lock.unlock();
   return true;
