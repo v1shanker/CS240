@@ -7,6 +7,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <queue>
 #include <vector>
 #include "common.h"
@@ -195,6 +196,7 @@ bool Yield(bool only_ready) {
 
   current_thread->state = Thread::State::kRunning;
 
+  GarbageCollect();
   queue_lock.unlock();
   return true;
 }
@@ -206,8 +208,18 @@ void Wait() {
   }
 }
 
+// This function must be called with the queue_lock held
 void GarbageCollect() {
-  // FIXME: Phase 4
+  std::set<int> zombie_thr_ids = {};
+  for(unsigned int i = 0; i < thread_queue.size(); i++) {
+    if (thread_queue[i]->state == Thread::State::kZombie) {
+      zombie_thr_ids.insert(i);
+    }
+  }
+
+  for(std::set<int>::iterator it = zombie_thr_ids.begin(); it != zombie_thr_ids.end(); it++) {
+    thread_queue.erase(thread_queue.begin() + *it);
+  }
 }
 
 std::pair<int, int> GetThreadCount() {
