@@ -16,9 +16,13 @@ and context switching.
 
 Part 2: Double Checked Locking Pattern + ThreadSanitizer
 
-In test/dclp.cpp, we implemented the double checked locking pattern as shown
+In src/dclp.cpp, we implemented the double checked locking pattern as shown
 in the Eraser paper. We used the given extra credit example as a template,
 with only 5 threads and a MockFile instead of the C++ FILE API.
+
+** Note: src/dclp.cpp should really be in the test directory. However, the
+   Makefile is setup only include the src/ and inc/ directory. Therefore,
+   it is moved into the src directory.
 
 WARNING: ThreadSanitizer: data race (pid=7869)
   Write of size 8 at 0x0000006113a0 by thread T2 (mutexes: write M11):
